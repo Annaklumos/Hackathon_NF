@@ -1,26 +1,45 @@
-params.ncbi_api_key = '24e61d2d45cab93c6268b0d572d9fe82ac09'
-
 Channel
-    .from('SRR11462797')
+    .fromSRA(params.accession, apiKey: params.ncbi_api_key)
     .view()
     .set { SRA_ch }
 
-process fastq {
+Channel
+    .of(3, 7)
+    .view()
+    .set { human_chrm_ch }
 
-    label 'fastq'
+process chrm {
+
+    label 'chrm'
     echo true
 
     input:
-    val(id) from SRA_ch
+    val(chr) from human_chrm_ch
 
     output:
-    tuple val(id), file("*_{1,2}.fastq") into fastq_ch
+    file "human_genome.fa" into human_genome_ch
 
     script:
     """
-    fasterq-dump $id
+    wget -O "$chr".fa.gz ftp://ftp.ensembl.org/pub/release-101/fasta/homo_sapiens/dna/Homo_sapiens.GRCh38.dna.chromosome."$chr".fa.gz
+    gunzip -c *.fa.gz > human_genome.fa
     """
 
 }
 
-fastq_ch.view()
+process index {
+
+    label 'index'
+    echo true
+
+    input:
+    file "human_genome.fa" from human_genome_ch
+
+    output:
+    file 'SAindex' into index_ch
+
+    script:
+    """
+    STAR --runThreadN 4 --runMode genomeGenerate --genomeFastaFiles 'human_genome.fa' --genomeSAindexNbases 12
+    """
+}
