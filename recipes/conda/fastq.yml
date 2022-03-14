@@ -1,6 +1,0 @@
-name: fastq
-channels:
-  - bioconda
-  - conda-forge
-dependencies:
-  - sra-tools=2.10.3

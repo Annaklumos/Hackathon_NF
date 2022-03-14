@@ -1,31 +1,17 @@
+c_green = "\033[0;32m";
+c_blue='\033[0;34m'
+c_purple = "\033[0;35m";
+c_red =  "\033[0;31m";
+b_green = "\033[1;32m";
+c_reset = "\033[0m";
+
 Channel
     .fromSRA(params.accession, apiKey: params.ncbi_api_key)
-    .view()
     .set { SRA_ch }
 
 Channel
-    .of(3, 7)
-    .view()
-    .set { human_chrm_ch }
-
-process chrm {
-
-    label 'chrm'
-    echo true
-
-    input:
-    val(chr) from human_chrm_ch
-
-    output:
-    file "human_genome.fa" into human_genome_ch
-
-    script:
-    """
-    wget -O "$chr".fa.gz ftp://ftp.ensembl.org/pub/release-101/fasta/homo_sapiens/dna/Homo_sapiens.GRCh38.dna.chromosome."$chr".fa.gz
-    gunzip -c *.fa.gz > human_genome.fa
-    """
-
-}
+    .fromPath(params.genome)
+    .set { genome_ch }
 
 process index {
 
@@ -33,13 +19,46 @@ process index {
     echo true
 
     input:
-    file "human_genome.fa" from human_genome_ch
+    file 'genome' from genome_ch
 
     output:
-    file 'SAindex' into index_ch
+    tuple path(genome), file("*.{amb,ann,bwt,pac,sa}") into (bwa_index_ch, bwa_index_ch2)
 
     script:
     """
-    STAR --runThreadN 4 --runMode genomeGenerate --genomeFastaFiles 'human_genome.fa' --genomeSAindexNbases 12
+    bwa index -a bwtsw $genome
     """
+}
+
+process align {
+
+    label "align"
+    echo true
+
+    input :
+    tuple val(sample_id), path(reads) from SRA_ch
+    tuple path(genome), file("*.sa") from bwa_index_ch
+
+    output:
+    file("*.bam") into align_out_ch
+
+    script:
+    """
+    bwa mem $genome $reads | samtools sort | samtools view -b - > ${sample_id}.bam
+    """
+
+}
+
+// END processes
+workflow.onComplete {
+    if (workflow.stats.ignoredCount > 0 && workflow.success) {
+        log.info "-${c_purple}Warning, pipeline completed, but with errored process(es)${c_reset}-"
+        log.info "-${c_red}Number of ignored errored process(es) : ${workflow.stats.ignoredCount}${c_reset}-"
+        log.info "-${c_green}Number of successfully run process(es) : ${workflow.stats.succeedCount}${c_reset}-"
+    }
+    if (workflow.success) {
+        log.info "-${c_purple}[${params.pipeline_name}]${c_green} Pipeline completed successfully${c_reset}-"
+    } else {
+        log.info "-${c_purple}[${params.pipeline_name}]${c_red} Pipeline completed with errors${c_reset}-"
+    }
 }
